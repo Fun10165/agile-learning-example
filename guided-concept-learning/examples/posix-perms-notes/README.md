@@ -43,7 +43,7 @@
 | effective uid / gid | 当前生效的身份（**判定使用它**） |
 | saved set-user-ID / set-group-ID | exec 完成时刻 effective 值的另一份存储（见下） |
 
-saved 的来源是 exec：exec 完成那一刻，effective 的值被另存一份为 saved。于是 exec 刚结束时 effective 与 saved 相等——普通程序里三个值全同（例如 `1000, 1000, 1000`）；setuid 程序里则是 `(real, effective, saved) = (1000, 0, 0)`（alice 执行属主为 root 的 setuid 程序）。
+saved 的来源是 exec：exec 完成那一刻，effective 的值被另存一份为 saved。于是 exec 刚结束时 effective 与 saved 相等——普通程序里三个值全同（例如 `1000, 1000, 1000`）；setuid 程序里则是 `(real, effective, saved) = (1000, 0, 0)`。以 `/usr/bin/passwd`（`-rwsr-xr-x`，属主 root）为例：alice（uid 1000）执行它之后，进程带着这三个值运行。
 
 这份存储的用途是「回程票」：进程运行期间可以用 setuid 家族调用（`seteuid` 等）修改 effective，saved 让它能找回改掉之前的那个值。以 `(1000, 0, 0)` 的程序为例：
 
