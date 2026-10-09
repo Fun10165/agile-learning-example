@@ -41,7 +41,16 @@
 |---|---|
 | real uid / gid | 启动这个进程的用户（判定不使用它） |
 | effective uid / gid | 当前生效的身份（**判定使用它**） |
-| saved set-user-ID / set-group-ID | exec 后生效身份的副本；setuid 程序借它在「提权身份」与「real 身份」之间切换 |
+| saved set-user-ID / set-group-ID | exec 完成时刻 effective 值的另一份存储（见下） |
+
+saved 的来源是 exec：exec 完成那一刻，effective 的值被另存一份为 saved。于是 exec 刚结束时 effective 与 saved 相等——普通程序里三个值全同（例如 `1000, 1000, 1000`）；setuid 程序里则是 `(real, effective, saved) = (1000, 0, 0)`（alice 执行属主为 root 的 setuid 程序）。
+
+这份存储的用途是「回程票」：进程运行期间可以用 setuid 家族调用（`seteuid` 等）修改 effective，saved 让它能找回改掉之前的那个值。以 `(1000, 0, 0)` 的程序为例：
+
+- `seteuid(1000)` 降回用户身份 → `(1000, 1000, 0)`（改用 real 的值）；
+- `seteuid(0)` 升回 → `(1000, 0, 0)`（找回 saved 的值）。
+
+非特权进程能把 effective 换成 real 或 saved 的值，换不到别的值——普通进程调用 `seteuid(0)` 会被拒绝。有了这种切换，setuid 程序可以只在需要特权的一小段动作里用提权身份，其余时间降回用户身份，把可被滥用的窗口收窄。（切换调用的完整规则与差异，留给缺口清单里的「身份切换」。）
 
 除此之外，进程还携带一个附加组列表；判定「同组」时用 effective gid 加上这个列表。
 
