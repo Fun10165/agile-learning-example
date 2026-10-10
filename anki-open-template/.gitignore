@@ -11,3 +11,7 @@ __pycache__/
 *.bak.*
 anki-open-template-test.apkg_1/
 banks/
+
+# 本地生成：各主题制卡脚本与配套媒体图（不入库）
+scripts/generate_*_apkg.py
+media/
