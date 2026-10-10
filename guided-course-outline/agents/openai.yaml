@@ -1,0 +1,4 @@
+interface:
+  display_name: "专家课程目录"
+  short_description: "生成只有章名与节名的完整学习目录，衔接逐节深入讲解与专家能力训练"
+  default_prompt: "请使用 $guided-course-outline 为指定主题生成专家课程目录，只输出按学习顺序编排的章名和节名，供 guided-concept-learning 逐节展开。"
