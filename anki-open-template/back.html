@@ -1,0 +1,790 @@
+<script>
+  (function () {
+    if (window.__ankiAwesomeSelectDebugInstalled) {
+      return;
+    }
+    window.__ankiAwesomeSelectDebugInstalled = true;
+    function showDebug(message) {
+      try {
+        var panel = document.getElementById("anki-debug-panel");
+        if (!panel) {
+          panel = document.createElement("pre");
+          panel.id = "anki-debug-panel";
+          panel.style.whiteSpace = "pre-wrap";
+          panel.style.wordBreak = "break-word";
+          panel.style.background = "#fff1f1";
+          panel.style.color = "#a40000";
+          panel.style.border = "1px solid #ffb3b3";
+          panel.style.borderRadius = "12px";
+          panel.style.padding = "12px";
+          panel.style.margin = "12px 12px 0 12px";
+          panel.style.fontSize = "12px";
+          panel.style.lineHeight = "1.5";
+          panel.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+          if (document.body) {
+            document.body.insertBefore(panel, document.body.firstChild);
+          } else {
+            document.addEventListener("DOMContentLoaded", function () {
+              document.body.insertBefore(panel, document.body.firstChild);
+            }, {once: true});
+          }
+        }
+        panel.textContent = message;
+      } catch (_error) { }
+    }
+    window.addEventListener("error", function (event) {
+      showDebug(
+        "[anki-open-template back error]\\n" +
+        "message: " + String(event.message || "") + "\\n" +
+        "source: " + String(event.filename || "") + "\\n" +
+        "line: " + String(event.lineno || 0) + "\\n" +
+        "column: " + String(event.colno || 0) + "\\n" +
+        "stack: " + String(event.error && event.error.stack ? event.error.stack : "")
+      );
+    });
+    window.addEventListener("unhandledrejection", function (event) {
+      var reason = event && event.reason ? event.reason : "";
+      showDebug(
+        "[anki-open-template back rejection]\\n" +
+        String(reason && reason.stack ? reason.stack : reason)
+      );
+    });
+  })();
+</script>
+
+<div id="field-store" class="hidden">
+  <div id="raw-id">{{id}}</div>
+  <div id="raw-type">{{type}}</div>
+  <div id="raw-question">{{question}}</div>
+  <div id="raw-options">{{options}}</div>
+  <div id="raw-answer">{{answer}}</div>
+  <div id="raw-notes">{{notes}}</div>
+  <div id="raw-extra">{{extra}}</div>
+  <div id="raw-audio">{{audio}}</div>
+  <div id="raw-occlusion-image">{{occlusion_image}}</div>
+  <div id="raw-tags">{{Tags}}</div>
+  <div id="raw-deck">{{Deck}}</div>
+</div>
+
+<div id="app" class="app-shell">
+  <div class="card-shell">
+    <div class="card-toolbar">
+      <div id="deck-name" class="deck-name"></div>
+      <div id="answer-summary" class="answer-summary"></div>
+    </div>
+
+    <div class="card-head">
+      <div class="card-meta">
+        <span id="card-id" class="card-id"></span>
+        <span id="card-type" class="card-type"></span>
+      </div>
+      <div id="tag-bar" class="tag-bar"></div>
+    </div>
+
+    <div id="prompt" class="prompt"></div>
+    <div id="back-interaction" class="interaction-area"></div>
+    <div id="notes-panel" class="notes-panel"></div>
+    <div id="audio-panel" class="audio-panel"></div>
+  </div>
+</div>
+
+<div id="back-footer" class="footer">V95 Rebuild · 晚期多题型模板</div>
+
+<script>
+  "use strict";
+(() => {
+  // src/shared.ts
+  var DEFAULT_SETTINGS = {
+    showType: true,
+    showDeck: false,
+    showNotesFront: true,
+    autoFlip: true,
+    randomOptions: false,
+    choiceStats: true,
+    choiceDisplay: "immediate",
+    choiceDelayMs: 1500,
+    fillMode: "line",
+    occlusionOrder: "tb-lr",
+    theme: "warm"
+  };
+  var STORAGE_KEYS = {
+    settings: "AAS-SETTINGS",
+    selectedPrefix: "AAS-SELECTED-",
+    fillPrefix: "AAS-FILL-",
+    occlusionPrefix: "AAS-OCCLUSION-",
+    orderPrefix: "AAS-ORDER-"
+  };
+  var OPEN_BRACE = String.fromCharCode(123);
+  var CLOSE_BRACE = String.fromCharCode(125);
+  var CLOZE_START = `${OPEN_BRACE}${OPEN_BRACE}c`;
+  var CLOZE_END = `${CLOSE_BRACE}${CLOSE_BRACE}`;
+  function trim(value) {
+    return String(value != null ? value : "").replace(/^\s+|\s+$/g, "");
+  }
+  function getText(id) {
+    const element = document.getElementById(id);
+    return element ? element.textContent || "" : "";
+  }
+  function cloneHtmlWithResolvedImages(element) {
+    const clone = element.cloneNode(true);
+    const originalImages = element.querySelectorAll("img[src]");
+    const cloneImages = clone.querySelectorAll("img[src]");
+    for (let index = 0; index < originalImages.length; index += 1) {
+      const cloneImage = cloneImages[index];
+      const originalImage = originalImages[index];
+      if (!cloneImage || !originalImage) {
+        continue;
+      }
+      cloneImage.setAttribute("src", originalImage.src || originalImage.getAttribute("src") || "");
+    }
+    return clone.innerHTML || "";
+  }
+  function getHtml(id) {
+    const element = document.getElementById(id);
+    return element ? cloneHtmlWithResolvedImages(element) : "";
+  }
+  function readFields() {
+    return {
+      id: trim(getText("raw-id")) || "0",
+      type: trim(getText("raw-type")),
+      question: getHtml("raw-question"),
+      options: getHtml("raw-options"),
+      answer: trim(getText("raw-answer")),
+      notes: getHtml("raw-notes"),
+      extra: trim(getText("raw-extra")),
+      audio: trim(getHtml("raw-audio")),
+      occlusionImage: getHtml("raw-occlusion-image"),
+      tags: trim(getText("raw-tags")),
+      deck: trim(getText("raw-deck"))
+    };
+  }
+  function parseJSON(value, fallback) {
+    try {
+      return value ? JSON.parse(value) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+  function loadSettings() {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.settings);
+      const parsed = parseJSON(raw || "", {});
+      return {
+        showType: typeof parsed.showType === "boolean" ? parsed.showType : DEFAULT_SETTINGS.showType,
+        showDeck: typeof parsed.showDeck === "boolean" ? parsed.showDeck : DEFAULT_SETTINGS.showDeck,
+        showNotesFront: typeof parsed.showNotesFront === "boolean" ? parsed.showNotesFront : DEFAULT_SETTINGS.showNotesFront,
+        autoFlip: typeof parsed.autoFlip === "boolean" ? parsed.autoFlip : DEFAULT_SETTINGS.autoFlip,
+        randomOptions: typeof parsed.randomOptions === "boolean" ? parsed.randomOptions : DEFAULT_SETTINGS.randomOptions,
+        choiceStats: typeof parsed.choiceStats === "boolean" ? parsed.choiceStats : DEFAULT_SETTINGS.choiceStats,
+        choiceDisplay: parsed.choiceDisplay === "delay" || parsed.choiceDisplay === "manual" || parsed.choiceDisplay === "immediate" ? parsed.choiceDisplay : DEFAULT_SETTINGS.choiceDisplay,
+        choiceDelayMs: typeof parsed.choiceDelayMs === "number" && Number.isFinite(parsed.choiceDelayMs) ? Math.min(6e4, Math.max(0, Math.round(parsed.choiceDelayMs))) : DEFAULT_SETTINGS.choiceDelayMs,
+        fillMode: parsed.fillMode === "box" || parsed.fillMode === "mask" || parsed.fillMode === "line" ? parsed.fillMode : DEFAULT_SETTINGS.fillMode,
+        occlusionOrder: parsed.occlusionOrder === "lr-tb" || parsed.occlusionOrder === "tb-lr" ? parsed.occlusionOrder : DEFAULT_SETTINGS.occlusionOrder,
+        theme: parsed.theme === "mint" || parsed.theme === "slate" || parsed.theme === "warm" ? parsed.theme : DEFAULT_SETTINGS.theme
+      };
+    } catch (e) {
+      return { ...DEFAULT_SETTINGS };
+    }
+  }
+  function cardStateKey(card2) {
+    return `${encodeURIComponent(card2.deck || "_")}::${encodeURIComponent(card2.id)}`;
+  }
+  function loadSessionState(prefix, stateKey2, fallback) {
+    try {
+      const value = window.sessionStorage.getItem(prefix + stateKey2);
+      return value == null ? fallback : value;
+    } catch (e) {
+      return fallback;
+    }
+  }
+  function clearSessionState(prefix, stateKey2) {
+    try {
+      window.sessionStorage.removeItem(prefix + stateKey2);
+    } catch (e) {
+    }
+  }
+  function clearReviewState(stateKey2) {
+    clearSessionState(STORAGE_KEYS.selectedPrefix, stateKey2);
+    clearSessionState(STORAGE_KEYS.fillPrefix, stateKey2);
+    clearSessionState(STORAGE_KEYS.occlusionPrefix, stateKey2);
+    clearSessionState(STORAGE_KEYS.orderPrefix, stateKey2);
+  }
+  function splitItems(value) {
+    const normalized = trim(value);
+    if (!normalized) {
+      return [];
+    }
+    if (normalized.indexOf("||") > -1) {
+      return normalized.split("||").map((item) => trim(item)).filter(Boolean);
+    }
+    return normalized.split("\n").map((item) => trim(item)).filter(Boolean);
+  }
+  function normalizeType(rawType, fields, extra) {
+    const value = trim(rawType).toLowerCase();
+    if (value === "choice" || value === "single" || value === "multiple" || value === "选择题") {
+      return "choice";
+    }
+    if (value === "fill" || value === "cloze" || value === "填空题") {
+      return "fill";
+    }
+    if (value === "occlusion" || value === "mixed" || value === "挖空混合" || value === "图片遮挡") {
+      return "occlusion";
+    }
+    if (value === "mindmap" || value === "思维导图") {
+      return "mindmap";
+    }
+    if (trim(fields.options)) {
+      return "choice";
+    }
+    if (fields.question.indexOf(CLOZE_START) > -1) {
+      return "fill";
+    }
+    if (typeof extra.image === "string" && Array.isArray(extra.masks)) {
+      return "occlusion";
+    }
+    if (Array.isArray(extra.mindmap)) {
+      return "mindmap";
+    }
+    return "qa";
+  }
+  function typeLabel(kind, answers) {
+    if (kind === "choice") {
+      return answers.length > 1 ? "多选题" : "单选题";
+    }
+    if (kind === "fill") {
+      return "填空题";
+    }
+    if (kind === "occlusion") {
+      return "图片遮挡";
+    }
+    if (kind === "mindmap") {
+      return "思维导图";
+    }
+    return "问答题";
+  }
+  function normalizeCard(fields) {
+    const extra = parseJSON(fields.extra, {});
+    const answers = splitItems(fields.answer);
+    const kind = normalizeType(fields.type, fields, extra);
+    return {
+      id: fields.id,
+      kind,
+      question: fields.question,
+      options: splitItems(fields.options),
+      answers,
+      notes: fields.notes,
+      extra,
+      audio: fields.audio,
+      occlusionImage: fields.occlusionImage,
+      tags: fields.tags ? fields.tags.split(" ").map((item) => trim(item)).filter(Boolean) : [],
+      deck: fields.deck,
+      label: typeLabel(kind, answers)
+    };
+  }
+  function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+  function byId(id) {
+    const element = document.getElementById(id);
+    if (!element) {
+      throw new Error(`Missing element: ${id}`);
+    }
+    return element;
+  }
+  function listToFlagMap(items) {
+    const flags = {};
+    items.forEach((item) => {
+      if (item) {
+        flags[item] = true;
+      }
+    });
+    return flags;
+  }
+  function escapeHtml(value) {
+    return String(value != null ? value : "").split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;");
+  }
+  function escapeAttribute(value) {
+    return escapeHtml(value).split('"').join("&quot;");
+  }
+  function htmlToText(html) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = sanitizeRichHtml(html);
+    return wrapper.textContent || "";
+  }
+  function sanitizeRichHtml(html) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = String(html || "");
+    const allowedTags = {
+      A: true,
+      B: true,
+      BLOCKQUOTE: true,
+      BR: true,
+      CODE: true,
+      DIV: true,
+      EM: true,
+      HR: true,
+      I: true,
+      IMG: true,
+      LI: true,
+      OL: true,
+      P: true,
+      PRE: true,
+      RP: true,
+      RT: true,
+      RUBY: true,
+      SPAN: true,
+      STRONG: true,
+      SUB: true,
+      SUP: true,
+      TABLE: true,
+      TBODY: true,
+      TD: true,
+      TFOOT: true,
+      TH: true,
+      THEAD: true,
+      TR: true,
+      UL: true
+    };
+    const droppedTags = {
+      BASE: true,
+      BUTTON: true,
+      EMBED: true,
+      FORM: true,
+      IFRAME: true,
+      INPUT: true,
+      LINK: true,
+      MATH: true,
+      META: true,
+      OBJECT: true,
+      OPTION: true,
+      SCRIPT: true,
+      SELECT: true,
+      STYLE: true,
+      SVG: true,
+      TEXTAREA: true
+    };
+    const commonAttributes = {
+      "aria-hidden": true,
+      "aria-label": true,
+      class: true,
+      role: true,
+      title: true
+    };
+    const attributesByTag = {
+      A: { href: true, rel: true, target: true },
+      IMG: { alt: true, height: true, loading: true, src: true, width: true },
+      TD: { colspan: true, rowspan: true },
+      TH: { colspan: true, rowspan: true, scope: true }
+    };
+    const hasSafeUrl = (value, image) => {
+      const normalized = value.replace(/[\u0000-\u0020]+/g, "").toLowerCase();
+      const scheme = normalized.match(/^([a-z][a-z0-9+.-]*):/);
+      if (!scheme) {
+        return true;
+      }
+      if (image && normalized.startsWith("data:image/")) {
+        return /^data:image\/(?:gif|jpeg|png|webp);base64,/.test(normalized);
+      }
+      const allowedSchemes = image ? { anki: true, blob: true, file: true, http: true, https: true } : { http: true, https: true, mailto: true };
+      return Boolean(allowedSchemes[scheme[1]]);
+    };
+    const sanitize = (element) => {
+      Array.from(element.children).forEach((child) => {
+        if (droppedTags[child.tagName]) {
+          child.remove();
+          return;
+        }
+        if (!allowedTags[child.tagName]) {
+          sanitize(child);
+          child.replaceWith(...Array.from(child.childNodes));
+          return;
+        }
+        const tagAttributes = attributesByTag[child.tagName] || {};
+        Array.from(child.attributes).forEach((attribute) => {
+          const name = attribute.name.toLowerCase();
+          if (!commonAttributes[name] && !tagAttributes[name]) {
+            child.removeAttribute(attribute.name);
+            return;
+          }
+          if ((name === "src" || name === "href") && !hasSafeUrl(attribute.value, child.tagName === "IMG")) {
+            child.removeAttribute(attribute.name);
+          }
+        });
+        if (child.tagName === "A" && child.getAttribute("target") === "_blank") {
+          child.setAttribute("rel", "noopener noreferrer");
+        }
+        sanitize(child);
+      });
+    };
+    sanitize(wrapper);
+    return wrapper.innerHTML;
+  }
+  function normalizeOcclusionImageHtml(html) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = sanitizeRichHtml(html);
+    wrapper.querySelectorAll("img").forEach((image) => image.classList.add("occlusion-image"));
+    return wrapper.innerHTML;
+  }
+  function convertMathDelimiters(text) {
+    let result = "";
+    let index = 0;
+    let inInline = false;
+    let inBlock = false;
+    while (index < text.length) {
+      const current = text.charAt(index);
+      const next = text.charAt(index + 1);
+      if (current === "\\") {
+        if (next === "$") {
+          result += "$";
+          index += 2;
+          continue;
+        }
+        result += current;
+        index += 1;
+        continue;
+      }
+      if (current === "$" && next === "$" && !inInline) {
+        result += inBlock ? "\\]" : "\\[";
+        inBlock = !inBlock;
+        index += 2;
+        continue;
+      }
+      if (current === "$" && !inBlock) {
+        result += inInline ? "\\)" : "\\(";
+        inInline = !inInline;
+        index += 1;
+        continue;
+      }
+      result += current;
+      index += 1;
+    }
+    return result;
+  }
+  function normalizeMathInSafeHtml(html) {
+    if (!trim(html)) {
+      return html;
+    }
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const skippedTags = { CODE: true, PRE: true, MATH: true };
+    const walk = (node) => {
+      let child = node.firstChild;
+      while (child) {
+        const next = child.nextSibling;
+        if (child.nodeType === Node.TEXT_NODE) {
+          child.nodeValue = convertMathDelimiters(child.nodeValue || "");
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          const element = child;
+          if (!skippedTags[element.tagName] && !element.classList.contains("MathJax") && !element.closest("mjx-container")) {
+            walk(child);
+          }
+        }
+        child = next;
+      }
+    };
+    walk(wrapper);
+    return wrapper.innerHTML;
+  }
+  function normalizeMathHtml(html) {
+    return normalizeMathInSafeHtml(sanitizeRichHtml(html));
+  }
+  function queueMathTypeset(ids) {
+    const globalMathJax = window;
+    try {
+      const api = globalMathJax.MathJax;
+      if (!api || !api.startup || !api.typesetPromise) {
+        return;
+      }
+      const nodes = ids.map((id) => document.getElementById(id)).filter((node) => Boolean(node));
+      if (!nodes.length) {
+        return;
+      }
+      api.startup.promise.then(() => {
+        if (api.typesetClear) {
+          api.typesetClear();
+        }
+        return api.typesetPromise ? api.typesetPromise(nodes) : Promise.resolve();
+      }).catch(() => {
+      });
+    } catch (e) {
+    }
+  }
+  function parseClozeContent(content) {
+    let separator = -1;
+    for (let index = 0; index < content.length - 1; index += 1) {
+      if (content[index] !== ":" || content[index + 1] !== ":") {
+        continue;
+      }
+      let precedingBackslashes = 0;
+      for (let slash = index - 1; slash >= 0 && content[slash] === "\\"; slash -= 1) {
+        precedingBackslashes += 1;
+      }
+      if (precedingBackslashes % 2 === 0) {
+        separator = index;
+        break;
+      }
+    }
+    const decode = (value) => htmlToText(value.replace(/\\::/g, "::"));
+    return {
+      answer: decode(separator === -1 ? content : content.substring(0, separator)),
+      hint: decode(separator === -1 ? "" : content.substring(separator + 2))
+    };
+  }
+  function collectClozeTokens(question) {
+    const tokens = [];
+    let cursor = 0;
+    while (cursor < question.length) {
+      const start = question.indexOf(CLOZE_START, cursor);
+      if (start === -1) {
+        break;
+      }
+      const firstSep = question.indexOf("::", start);
+      const end = question.indexOf(CLOZE_END, firstSep + 2);
+      if (firstSep === -1 || end === -1) {
+        break;
+      }
+      const content = question.substring(firstSep + 2, end);
+      tokens.push(parseClozeContent(content));
+      cursor = end + 2;
+    }
+    return tokens;
+  }
+  function renderCloze(question, mode, fillMode, draft) {
+    question = sanitizeRichHtml(question);
+    let html = "";
+    let cursor = 0;
+    let order = 0;
+    while (cursor < question.length) {
+      const start = question.indexOf(CLOZE_START, cursor);
+      if (start === -1) {
+        html += question.substring(cursor);
+        break;
+      }
+      const firstSep = question.indexOf("::", start);
+      const end = question.indexOf(CLOZE_END, firstSep + 2);
+      if (firstSep === -1 || end === -1) {
+        html += question.substring(cursor);
+        break;
+      }
+      html += question.substring(cursor, start);
+      const content = question.substring(firstSep + 2, end);
+      const { answer, hint } = parseClozeContent(content);
+      order += 1;
+      if (mode === "back") {
+        html += `<span class="inline-answer">${escapeHtml(answer)}</span>`;
+      } else if (fillMode) {
+        const value = (draft == null ? void 0 : draft[String(order)]) || "";
+        const placeholder = hint || "请输入";
+        html += `<span class="fill-slot fill-slot-${fillMode}"><input class="fill-input" data-fill-index="${order}" value="${escapeAttribute(value)}" placeholder="${escapeAttribute(placeholder)}"></span>`;
+      } else {
+        html += `<span class="inline-blank">${escapeHtml(hint || "请作答")}</span>`;
+      }
+      cursor = end + 2;
+    }
+    return normalizeMathInSafeHtml(html);
+  }
+  function renderInlineCloze(question, mode) {
+    return renderCloze(escapeHtml(question), mode);
+  }
+  function mountAudio(container, audioField) {
+    if (!trim(audioField)) {
+      container.innerHTML = "";
+      return;
+    }
+    container.innerHTML = `<div class="audio-player audio-player-native"><div class="audio-native-label">音频</div><div class="audio-native-body">${audioField}</div></div>`;
+  }
+  function renderTags(tags) {
+    return tags.map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("");
+  }
+  function normalizeMasks(value) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const seenIds = /* @__PURE__ */ new Set();
+    const masks = [];
+    value.forEach((candidate, index) => {
+      if (!candidate || typeof candidate !== "object") {
+        return;
+      }
+      const x = Number("x" in candidate ? candidate.x : Number.NaN);
+      const y = Number("y" in candidate ? candidate.y : Number.NaN);
+      const w = Number("w" in candidate ? candidate.w : Number.NaN);
+      const h = Number("h" in candidate ? candidate.h : Number.NaN);
+      if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) {
+        return;
+      }
+      let id = trim("id" in candidate ? candidate.id : "") || String(index + 1);
+      if (seenIds.has(id)) {
+        id = `${id}-${index + 1}`;
+      }
+      seenIds.add(id);
+      const left = Math.max(0, Math.min(100, x));
+      const top = Math.max(0, Math.min(100, y));
+      masks.push({
+        id,
+        x: left,
+        y: top,
+        w: Math.max(0.1, Math.min(100 - left, w)),
+        h: Math.max(0.1, Math.min(100 - top, h)),
+        label: "label" in candidate && typeof candidate.label === "string" ? candidate.label : ""
+      });
+    });
+    return masks;
+  }
+  function sortMasks(masks, order) {
+    return [...masks].sort((left, right) => {
+      if (order === "lr-tb") {
+        return Number(left.x || 0) - Number(right.x || 0) || Number(left.y || 0) - Number(right.y || 0);
+      }
+      return Number(left.y || 0) - Number(right.y || 0) || Number(left.x || 0) - Number(right.x || 0);
+    });
+  }
+
+  // src/back.ts
+  var card = normalizeCard(readFields());
+  var settings = loadSettings();
+  var stateKey = cardStateKey(card);
+  var selectedList = splitItems(loadSessionState(STORAGE_KEYS.selectedPrefix, stateKey, ""));
+  var fillDraft = parseDraft(loadSessionState(STORAGE_KEYS.fillPrefix, stateKey, "{}"));
+  var visibleMasks = listToFlagMap(splitItems(loadSessionState(STORAGE_KEYS.occlusionPrefix, stateKey, "")));
+  var optionOrder = splitItems(loadSessionState(STORAGE_KEYS.orderPrefix, stateKey, ""));
+  function parseDraft(raw) {
+    try {
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function renderHeader() {
+    byId("card-id").textContent = `#${card.id}`;
+    byId("card-type").textContent = settings.showType ? card.label : "";
+    byId("deck-name").textContent = settings.showDeck ? card.deck : "";
+    byId("tag-bar").innerHTML = renderTags(card.tags);
+  }
+  function renderPrompt() {
+    byId("prompt").innerHTML = card.kind === "fill" ? renderCloze(card.question, "back") : normalizeMathHtml(card.question);
+  }
+  function letters(keys) {
+    return keys.map((key) => Number.parseInt(key, 10)).filter((value) => !Number.isNaN(value)).map((value) => String.fromCharCode(64 + value)).join(", ");
+  }
+  function getChoiceOrder() {
+    const items = card.options.map((label, index) => ({ key: String(index + 1), label }));
+    if (optionOrder.length !== items.length) {
+      return items;
+    }
+    const arranged = optionOrder.map((key) => items.find((item) => item.key === key)).filter((item) => Boolean(item));
+    return arranged.length === items.length ? arranged : items;
+  }
+  function renderChoice() {
+    const selected = listToFlagMap(selectedList);
+    const answers = listToFlagMap(card.answers);
+    let hits = 0;
+    const html = getChoiceOrder().map((option, index) => {
+      let status = "未作答";
+      let extraClass = "";
+      const isSelected = Boolean(selected[option.key]);
+      const isCorrect = Boolean(answers[option.key]);
+      if (isCorrect && isSelected) {
+        extraClass = " is-correct";
+        status = "答对";
+        hits += 1;
+      } else if (isCorrect) {
+        extraClass = " is-missed";
+        status = "正确但未选";
+      } else if (isSelected) {
+        extraClass = " is-wrong";
+        status = "误选";
+      }
+      return `<div class="option-card result-card${extraClass}"><span class="option-index">${String.fromCharCode(65 + index)}</span><span class="option-label">${normalizeMathHtml(option.label)}</span><span class="option-result">${status}</span></div>`;
+    }).join("");
+    byId("back-interaction").innerHTML = `<div class="option-list">${html}</div>`;
+    byId("answer-summary").textContent = settings.choiceStats ? `正确答案：${letters(card.answers) || "未作答"} · 你的作答：${letters(selectedList) || "未作答"} · 命中：${hits}/${card.answers.length || 1}` : `正确答案：${letters(card.answers) || "未作答"}`;
+  }
+  function renderFill() {
+    const rows = collectClozeTokens(card.question).map((token, index) => {
+      const value = fillDraft[String(index + 1)] || "";
+      const matched = trim(value) === trim(token.answer);
+      return `<div class="result-row"><span class="result-index">空${index + 1}</span><span class="result-user ${matched ? "is-correct" : "is-wrong"}">${escapeHtml(value || "未填写")}</span><span class="result-answer">正确答案：${escapeHtml(token.answer)}</span></div>`;
+    }).join("");
+    byId("back-interaction").innerHTML = `<div class="result-list">${rows}</div>`;
+    byId("answer-summary").textContent = "填空答案已回显";
+  }
+  function getOcclusionMasks() {
+    return sortMasks(normalizeMasks(card.extra.masks), settings.occlusionOrder);
+  }
+  function renderOcclusion() {
+    const masks = getOcclusionMasks();
+    const occlusionImage = normalizeOcclusionImageHtml(card.occlusionImage);
+    if (!trim(occlusionImage) || !masks.length) {
+      byId("back-interaction").innerHTML = '<div class="info-card">图片遮挡数据无效，无法展示背面结果。</div>';
+      byId("answer-summary").textContent = "遮挡数据无效";
+      return;
+    }
+    const maskHtml = masks.map((mask, index) => {
+      const id = String(mask.id || index + 1);
+      const revealed = visibleMasks[id] ? " is-revealed" : "";
+      return `<div class="occlusion-mask is-answer${revealed}" style="left:${mask.x}%;top:${mask.y}%;width:${mask.w}%;height:${mask.h}%;"><span>${escapeHtml(mask.label || "")}</span></div>`;
+    }).join("");
+    byId("back-interaction").innerHTML = `<div class="occlusion-shell"><div class="occlusion-canvas">${occlusionImage}${maskHtml}</div></div>`;
+    byId("answer-summary").textContent = "已显示全部遮挡区域";
+  }
+  function renderMindmapNode(node, depth, budget) {
+    if (depth > 32 || budget.count >= 1e3) {
+      return "";
+    }
+    budget.count += 1;
+    const children = Array.isArray(node.children) ? node.children : [];
+    const childHtml = children.map((child) => renderMindmapNode(child, depth + 1, budget)).filter(Boolean).join("");
+    const childrenMarkup = childHtml ? `<ul class="mindmap-children">${childHtml}</ul>` : "";
+    return `<li class="mindmap-node"><span class="mindmap-toggle" aria-hidden="true">${childHtml ? "▾" : "•"}</span><div class="mindmap-label">${renderInlineCloze(String(node.text || ""), "back")}</div>${childrenMarkup}</li>`;
+  }
+  function renderMindmap() {
+    const tree = Array.isArray(card.extra.mindmap) ? card.extra.mindmap : [];
+    const budget = { count: 0 };
+    byId("back-interaction").innerHTML = `<ul class="mindmap-root">${tree.map((node) => renderMindmapNode(node, 0, budget)).join("")}</ul>`;
+    byId("answer-summary").textContent = "思维导图已展开";
+  }
+  function renderNotes() {
+    const panel = byId("notes-panel");
+    if (!trim(card.notes)) {
+      panel.className = "notes-panel hidden";
+      panel.innerHTML = "";
+      return;
+    }
+    panel.className = "notes-panel";
+    panel.innerHTML = `<div class="notes-title">解析 / 笔记</div><div class="notes-content">${normalizeMathHtml(card.notes)}</div>`;
+  }
+  function renderInteraction() {
+    if (card.kind === "choice") {
+      renderChoice();
+      return;
+    }
+    if (card.kind === "fill") {
+      renderFill();
+      return;
+    }
+    if (card.kind === "occlusion") {
+      renderOcclusion();
+      return;
+    }
+    if (card.kind === "mindmap") {
+      renderMindmap();
+      return;
+    }
+    const answer = card.answers.join(" / ") || "请结合解析阅读";
+    byId("back-interaction").innerHTML = `<div class="info-card">答案：${escapeHtml(answer)}</div>`;
+    byId("answer-summary").textContent = card.answers.join(" / ") || "已翻到背面";
+  }
+  function main() {
+    setTheme(settings.theme);
+    renderHeader();
+    renderPrompt();
+    renderInteraction();
+    renderNotes();
+    mountAudio(byId("audio-panel"), card.audio);
+    clearReviewState(stateKey);
+    queueMathTypeset(["prompt", "back-interaction", "notes-panel"]);
+  }
+  main();
+})();
+</script>

@@ -1,0 +1,13 @@
+.idea
+*.iml
+.DS_Store
+node_modules/
+.venv/
+.uv-cache/
+.npm-cache/
+__pycache__/
+*.pyc
+*.apkg
+*.bak.*
+anki-open-template-test.apkg_1/
+banks/
