@@ -49,6 +49,10 @@ Use it for requests such as “teach me,” “help me understand,” “how doe
 - 运算描述要精确，选用核得住的数学词（`请求值 & ~umask` 是取差集）。
 - 写进模型前对照原始来源核对（标准原文、手册页）；发现说法出错，改文件，也把承载它的历史一并修正。
 
+### 示例
+
+本 skill 自带一个完整的实例：`examples/posix-perms-notes/`（POSIX 权限系统的逐版笔记）。它保留完整 git 历史——`git log --oneline` 看迭代轨迹，`git show <hash>` 逐个看每版的 diff；工作区里的 `README.md` 是当前版本的完整模型。
+
 ## Language and Presentation
 
 Use the learner's preferred language, inferring it from the conversation and source material unless the learner explicitly overrides it. When the learner's language is Chinese, prefer concise, fluent Chinese for faster reading and avoid unnecessary English headings or boilerplate; retain indispensable technical terms, symbols, code, and canonical names. Keep formatting readable without excessive line breaks, especially when the material may later be reviewed on mobile. Compact presentation must never remove strict definitions, equations, traces, limitations, alternatives, or the mandatory coverage audit.
