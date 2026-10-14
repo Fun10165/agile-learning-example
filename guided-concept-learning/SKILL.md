@@ -165,7 +165,16 @@ description: "用严格的契约做概念讲解与理解构建：从学习者已
 
 ### 示例
 
-本 skill 自带一个完整的实例：`examples/posix-perms-notes/`（POSIX 权限系统的逐版笔记）。它保留完整 git 历史——`git log --oneline` 看迭代轨迹，`git show <hash>` 逐个看每版的 diff；工作区里的 `README.md` 是当前版本的完整模型。
+本 skill 自带一个完整的实例：`examples/posix-perms-notes/`（POSIX 权限系统的逐版笔记）。**它的工作区默认检出在起点版本（`v0` 分支）**：你第一眼看到的 `README.md` 就是 v0 的形态，不是迭代后的版本。
+
+读示例 MUST 看多个版本、理解迭代；只看工作区的一个快照 MUST NOT 算读过示例：
+
+- 看完整迭代序列：`git log --all --oneline`（`vN: <动机> → <机制>`，最新的在上）；
+- 按时间顺序读：`git log --all --oneline --reverse`；
+- 看某一版改了什么：`git show <hash>`；看某一版当时的工作区：`git checkout <hash>`；
+- 看完回到起点：`git checkout v0`。
+
+（`v0` 分支只用于展示起点；迭代发生在 `main` 分支上，不要在 `v0` 上继续提交。）
 
 ## 术语定义契约
 
