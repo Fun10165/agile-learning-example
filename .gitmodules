@@ -1,0 +1,3 @@
+[submodule "anki-open-template"]
+	path = anki-open-template
+	url = https://github.com/Fun10165/anki-open-template.git
