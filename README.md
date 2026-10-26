@@ -41,3 +41,11 @@
 - **完整**：读者只读当前版本、不翻历史，就能理解模型里的每个机制。
 - **候选**：本版模型解释不了、留给下一版的问题。
 - **提交信息**：随提交记录的一句话，写明「这一版为什么出现」。
+
+## 目录
+
+- `guided-concept-learning/`：教一个概念怎么讲清楚、怎么按版本迭代，本页这份笔记就是它的示例。
+- `guided-course-outline/`：给一个主题排出学习顺序，只给章名与节名，再交给前一个 skill 逐节展开。
+- `rigorous-anki-card-authoring/`：把学过的内容做成逐张审计、经批准后才出包的 Anki 卡组。
+- `RULES.md`、`AGENTS.md`：作者的 agent 使用偏好，可选择性试用。
+- `anki-open-template/`：Anki 模板的生成程序，以 submodule 形式引入，克隆后需要 `git submodule update --init` 才能看到内容。
